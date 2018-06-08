@@ -29,7 +29,7 @@
 #include <net/ip.h>
 #include <linux/can.h>
 
-MODULE_DESCRIPTION("system call trace module");
+MODULE_DESCRIPTION("forensic support mechanism kernel module");
 MODULE_LICENSE("Dual BSD/GPL");
 /* following string SYSCALL_TABLE_ADDRESS will be replaced by set_syscall_table_address.sh */
 static void **syscall_table = (void *) 0xffffffff81801400;
@@ -172,9 +172,7 @@ asmlinkage long replace_sys_open(const char __user *filename, int flags, umode_t
 	
 	getnstimeofday(&ts_global);
 	syscall_count[__NR_open]++;
-	if (pid >= W_LIST) {
-		printk(KERN_INFO "[forensic_open] Time:%ld.%09ld PID:%d Accessed_File:%s\n", ts_global.tv_sec, ts_global.tv_nsec, pid, filename);
-	}
+	printk(KERN_INFO "[forensic_open] Time:%ld.%09ld PID:%d Accessed_File:%s\n", ts_global.tv_sec, ts_global.tv_nsec, pid, filename);
 	ret = orig_sys_open(filename, flags, mode);
 	return ret;
 }
@@ -530,9 +528,7 @@ asmlinkage long replace_sys_connect(int arg1, struct sockaddr __user *arg2, int 
 	
 	syscall_count[__NR_connect]++;
 	getnstimeofday(&ts_global);
-	if (pid >= W_LIST) {
-		printk(KERN_INFO "[syscall_connect] Time:%ld.%9ld PID:%d IP:%d.%d.%d.%d Port:%d\n", ts_global.tv_sec, ts_global.tv_nsec, pid, (ipaddr)&0xFF, (ipaddr>>8)&0xFF, (ipaddr>>16)&0xFF, (ipaddr>>24)&0xFF, port);
-	}
+	printk(KERN_INFO "[forensic_connect] Time:%ld.%9ld PID:%d IP:%d.%d.%d.%d Port:%d\n", ts_global.tv_sec, ts_global.tv_nsec, pid, (ipaddr)&0xFF, (ipaddr>>8)&0xFF, (ipaddr>>16)&0xFF, (ipaddr>>24)&0xFF, port);
 	ret = orig_sys_connect(arg1, arg2, arg3);
     	return ret;
 }
@@ -547,7 +543,7 @@ asmlinkage long replace_sys_sendto(int arg1, void __user *arg2, size_t arg3, uns
                                 struct sockaddr __user *arg5, int arg6)
 {
 	long ret;
-	pid_t pid = orig_sys_getpid();
+	int pid = orig_sys_getpid();
 	struct timespec ts_global;
 	struct sockaddr_in *addr = (struct sockaddr_in *)arg5;
 	unsigned short port = ntohs(addr->sin_port);
@@ -555,9 +551,7 @@ asmlinkage long replace_sys_sendto(int arg1, void __user *arg2, size_t arg3, uns
 	
 	syscall_count[__NR_sendto]++;
 	getnstimeofday(&ts_global);
-	if (pid >= W_LIST) {
-		printk(KERN_INFO "[forensic_sendto] Time:%ld.%9ld PID:%d IP:%d.%d.%d.%d Port:%d\n", ts_global.tv_sec, ts_global.tv_nsec, pid, (ipaddr)&0xFF, (ipaddr>>8)&0xFF, (ipaddr>>16)&0xFF, (ipaddr>>24)&0xFF, port);
-    	}
+	if (addr != NULL) printk(KERN_INFO "[forensic_sendto] Time:%ld.%9ld PID:%d IP:%d.%d.%d.%d Port:%d\n", ts_global.tv_sec, ts_global.tv_nsec, pid, (ipaddr)&0xFF, (ipaddr>>8)&0xFF, (ipaddr>>16)&0xFF, (ipaddr>>24)&0xFF, port);
 	ret = orig_sys_sendto(arg1, arg2, arg3, arg4, arg5, arg6);
     	return ret;
 }
@@ -587,7 +581,6 @@ asmlinkage long replace_sys_recvmsg(int fd, struct msghdr __user *msg, unsigned 
 	
 	syscall_count[__NR_recvmsg]++;
 	getnstimeofday(&ts_global);
-	if (pid >= W_LIST) {
 		if ((0x0 <= frame->can_id && frame->can_id <= 0x7FF) && (frame->can_dlc == 1)) {
 			printk(KERN_INFO "[forensic_can] Time:%ld.%09ld CAN_PACKET:%03x[%d]%02x\n", ts_global.tv_sec, ts_global.tv_nsec, frame->can_id, frame->can_dlc, frame->data[0]);
 		} else if ((0x0 <= frame->can_id && frame->can_id <= 0x7FF) && (frame->can_dlc == 2)) {
@@ -605,7 +598,6 @@ asmlinkage long replace_sys_recvmsg(int fd, struct msghdr __user *msg, unsigned 
 		} else if ((0x0 <= frame->can_id && frame->can_id <= 0x7FF) && (frame->can_dlc == 8)) {
 			printk(KERN_INFO "[forensic_can] Time:%ld.%09ld CAN_PACKET:%03x[%d]%02x%02x%02x%02x%02x%02x%02x%02x\n", ts_global.tv_sec, ts_global.tv_nsec, frame->can_id, frame->can_dlc, frame->data[0], frame->data[1], frame->data[2], frame->data[3], frame->data[4], frame->data[5], frame->data[6], frame->data[7]);
 		}
-	}
 	ret = orig_sys_recvmsg(fd, msg, flags);
 	return ret;
 }
@@ -727,7 +719,7 @@ asmlinkage long replace_sys_kill(int pid, int sig)
 asmlinkage long replace_sys_uname(struct old_utsname *buf)
 {
 	long ret;
-	//int i;
+	int i;
 	syscall_count[__NR_uname]++;
     	ret = orig_sys_uname(buf);
     	return ret;
@@ -786,21 +778,6 @@ static void save_original_syscall_address(void)
 	//orig_sys_shutdown = syscall_table[__NR_shutdown];
 	orig_sys_bind = syscall_table[__NR_bind];
 	orig_sys_listen = syscall_table[__NR_listen];
-	orig_sys_getsockname = syscall_table[__NR_getsockname];
-	orig_sys_getpeername = syscall_table[__NR_getpeername];
-	orig_sys_socketpair = syscall_table[__NR_socketpair];
-	orig_sys_setsockopt = syscall_table[__NR_setsockopt];
-	orig_sys_getsockopt = syscall_table[__NR_getsockopt];
-
-	//orig_sys_clone = syscall_table[__NR_clone];
-	//orig_sys_fork = syscall_table[__NR_fork];
-	//orig_sys_vfork = syscall_table[__NR_vfork];
-	//orig_sys_execve = syscall_table[__NR_execve];
-
-	orig_sys_exit = syscall_table[__NR_exit];
-	orig_sys_wait4 = syscall_table[__NR_wait4];
-	//orig_sys_kill = syscall_table[__NR_kill];
-	orig_sys_uname = syscall_table[__NR_uname];
 }
 
 static void change_page_attr_to_rw(pte_t *pte)
@@ -829,6 +806,9 @@ static void replace_system_call(void *new, unsigned int syscall_number)
 
 static int syscall_replace_init(void)
 {
+	int i;
+	int eval_count=0;
+	struct timespec ts_start, ts_end;
 	DEFINE_SPINLOCK(spinlock);
     	pr_info("sys_call_table address is 0x%p\n", syscall_table);
 	spin_lock(&spinlock);
@@ -884,26 +864,23 @@ static int syscall_replace_init(void)
 	//replace_system_call(replace_sys_shutdown, 48);
 	replace_system_call(replace_sys_bind, 49);
 	replace_system_call(replace_sys_listen, 50);
-	replace_system_call(replace_sys_getsockname, 51);
-	replace_system_call(replace_sys_getpeername, 52);
-	replace_system_call(replace_sys_socketpair, 53);
-	replace_system_call(replace_sys_setsockopt, 54);
-	replace_system_call(replace_sys_getsockopt, 55);
-
-	//replace_system_call(replace_sys_clone, 56);
-	//replace_system_call(replace_sys_fork, 57);
-	//replace_system_call(replace_sys_vfork, 58);
-	//replace_system_call(replace_sys_execve, 59);
-
-	replace_system_call(replace_sys_exit, 60);
-	replace_system_call(replace_sys_wait4, 61);
-	//replace_system_call(replace_sys_kill, 62);
-	replace_system_call(replace_sys_uname, 63);
-
 	spin_unlock(&spinlock);
 	pr_info("system call replaced\n");
 	
-	
+	getnstimeofday(&ts_start);
+	printk(KERN_INFO "[forensic_eval] EVAL_COUNT:0\n");
+	while (eval_count < 60) {
+		getnstimeofday(&ts_end);
+		if ((ts_end.tv_sec-ts_start.tv_sec)>1) {
+			for (i = 0; i < SYSCALL_MAX; i++) {
+				printk(KERN_INFO "[forensic_count] SYSCALL_No.%d:%d\n", i, syscall_count[i]);
+				syscall_count[i] = 0;
+			}
+			getnstimeofday(&ts_start);
+			eval_count++;
+			printk(KERN_INFO "[forensic_eval] EVAL_COUNT:%d\n", eval_count);
+		}
+	}
 	return 0;
 }
 
@@ -957,28 +934,13 @@ static void syscall_replace_cleanup(void)
 	replace_system_call(orig_sys_socket, 41);
 	replace_system_call(orig_sys_connect, 42);
 	replace_system_call(orig_sys_accept, 43);
-	//replace_system_call(orig_sys_sendto, 44);
+	replace_system_call(orig_sys_sendto, 44);
 	replace_system_call(orig_sys_recvfrom, 45);
 	replace_system_call(orig_sys_sendmsg, 46);
 	replace_system_call(orig_sys_recvmsg, 47);
-	//replace_system_call(orig_sys_shutdown, 48);
+	replace_system_call(orig_sys_shutdown, 48);
 	replace_system_call(orig_sys_bind, 49);
 	replace_system_call(orig_sys_listen, 50);
-	replace_system_call(orig_sys_getsockname, 51);
-	replace_system_call(orig_sys_getpeername, 52);
-	replace_system_call(orig_sys_socketpair, 53);
-	replace_system_call(orig_sys_setsockopt, 54);
-	replace_system_call(orig_sys_getsockopt, 55);
-
-	//replace_system_call(orig_sys_clone, 56);
-	//replace_system_call(orig_sys_fork, 57);
-	//replace_system_call(orig_sys_vfork, 58);
-	//replace_system_call(orig_sys_execve, 59);
-
-	replace_system_call(orig_sys_exit, 60);
-	replace_system_call(orig_sys_wait4, 61);
-	//replace_system_call(orig_sys_kill, 62);
-	replace_system_call(orig_sys_uname, 63);
 	spin_unlock(&spinlock);
 }
 
