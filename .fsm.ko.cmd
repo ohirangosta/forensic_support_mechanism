@@ -1,1 +1,0 @@
-cmd_/home/inet/forensic_support_mechanism/fsm.ko := ld -r -m elf_x86_64 -T /usr/src/linux-headers-3.13.0-24-generic/scripts/module-common.lds --build-id  -o /home/inet/forensic_support_mechanism/fsm.ko /home/inet/forensic_support_mechanism/fsm.o /home/inet/forensic_support_mechanism/fsm.mod.o
